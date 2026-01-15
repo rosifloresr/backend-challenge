@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LeadsModule } from './modules/leads/leads.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import * as redisStore from 'cache-manager-redis-store';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -19,6 +20,8 @@ import * as redisStore from 'cache-manager-redis-store';
         ttl: 60, // segundos
       }),
     }),
+
+    ScheduleModule.forRoot(),
 
     //para bd postgresql
     TypeOrmModule.forRootAsync({
