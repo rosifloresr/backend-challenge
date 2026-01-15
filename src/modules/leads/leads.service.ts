@@ -1,37 +1,55 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {ConflictException, Injectable, NotFoundException, Inject,} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Lead } from './lead.entity';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 @Injectable()
 export class LeadsService {
-    constructor(
-        @InjectRepository(Lead)
-        private readonly leadRepository: Repository<Lead>
-    ) {}
+  constructor(
+    @InjectRepository(Lead)
+    private readonly leadRepository: Repository<Lead>,
 
-    async create(data: Partial<Lead>): Promise <Lead>{
-        const existing = await this.leadRepository.findOne({
-            where: {email: data.email},
-        });
+    @Inject(CACHE_MANAGER)
+    private readonly cacheManager: Cache,
+  ) {}
 
-        if (existing) {
-            throw new ConflictException('lead alredy exists');
-        }
+  async create(data: Partial<Lead>): Promise<Lead> {
+    const existing = await this.leadRepository.findOne({
+      where: { email: data.email },
+    });
 
-        const lead = this.leadRepository.create(data);
-        return this.leadRepository.save(lead);
+    if (existing) {
+      throw new ConflictException('Lead already exists');
     }
 
-    async findAll(): Promise<Lead[]> {
-        return this.leadRepository.find();
-    } 
+    const lead = this.leadRepository.create(data);
+    return this.leadRepository.save(lead);
+  }
 
-    async findById(id: string): Promise<Lead> {
-        const lead = await this.leadRepository.findOne({where: {id}});
-        if (!lead) {
-            throw new NotFoundException('Lead not found');
-        }
-        return lead;
+  async findAll(): Promise<Lead[]> {
+    return this.leadRepository.find();
+  }
+
+  async findById(id: string): Promise<Lead> {
+    const cacheKey = `lead:${id}`;
+
+    const cachedLead = await this.cacheManager.get<Lead>(cacheKey);
+    if (cachedLead) {
+      return cachedLead;
     }
+
+    const lead = await this.leadRepository.findOne({
+      where: { id },
+    });
+
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
+    }
+
+    await this.cacheManager.set(cacheKey, lead, 60);
+
+    return lead;
+  }
 }
