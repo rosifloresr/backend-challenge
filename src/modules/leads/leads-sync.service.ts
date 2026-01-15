@@ -1,57 +1,30 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bull';
+import { Injectable } from '@nestjs/common';
+import type { Queue } from 'bull';
 import { Cron } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Lead } from './lead.entity';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
+import { Logger } from '@nestjs/common';
 
 @Injectable()
 export class LeadsSyncService {
   private readonly logger = new Logger(LeadsSyncService.name);
 
   constructor(
-    @InjectRepository(Lead)
-    private readonly leadRepository: Repository<Lead>,
-    private readonly httpService: HttpService,
+    @InjectQueue('leads-sync')
+    private readonly leadsQueue: Queue,
   ) {}
 
-  //cada 5 minutos esta bien
+  //cada 5 min
   @Cron('0 */5 * * * *')
-  async syncExternalLeads() {
-    this.logger.log('Starting external lead sync');
+  async enqueueSync() {
+    this.logger.log('Enqueuing lead sync job');
 
-    //importo 10 leads por ejecucion y evito duplicadooss
-    const response = await firstValueFrom(
-      this.httpService.get('https://randomuser.me/api/?results=10'),
+    await this.leadsQueue.add(
+      'sync',
+      {},
+      {
+        attempts: 3,
+        backoff: 5000,
+      },
     );
-
-    const users = response.data.results;
-
-    for (const user of users) {
-      const email = user.email;
-
-      const existing = await this.leadRepository.findOne({
-        where: { email },
-      });
-
-      if (existing) {
-        this.logger.warn(`Lead with email ${email} already exists`);
-        continue;
-      }
-
-      const lead = this.leadRepository.create({
-        name: user.name.first,
-        lastName: user.name.last,
-        email,
-        phone: user.phone,
-        source: 'randomuser',
-        externalId: user.login.uuid,
-      });
-
-      await this.leadRepository.save(lead);
-    }
-
-    this.logger.log('External lead sync finished');
   }
 }
