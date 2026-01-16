@@ -22,4 +22,9 @@ export class LeadsController {
     findOne(@Param('id') id: string){
         return this.leadsService.findById(id);
     }
+
+    @Post('lead/:id/summarize')
+    async summarize(@Param('id') id: string) {
+        return this.leadsService.summarizeLead(id);
+    }
 }
