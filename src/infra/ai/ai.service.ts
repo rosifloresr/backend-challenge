@@ -1,35 +1,51 @@
-import { Injectable } from "@nestjs/common";
-import OpenAI from "openai";
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AiService {
-    private readonly client: OpenAI;
-    
-    constructor() {
-        this.client = new OpenAI({apiKey: process.env.OPENAI_API_KEY,});
-    }
-    async summarizeLead(lead: {
-        name: string; lastName: string; email: string; company?: string; }): Promise<{summary: string; next_action:string}> {
-            const prompt = `You are a CRM assistant. Given the following lead information, generate:
-            1) a short professional summary
-            2) a suggested next action
-            Return ONLY a valid JSON object with this exact structure:
-            {
-                "summary": "string",
-                "next_action": "string"
-            }
-            Lead data:
-            Name: ${lead.name} ${lead.lastName}
-            Email: ${lead.email}
-            Company: ${lead.company ?? 'N/A'}`;
+  private genAI: GoogleGenerativeAI;
 
-            const response = await this.client.chat.completions.create({
-                model: 'gpt-4.1-mini',
-                messages: [{role: 'user', content: prompt}],
-                temperature: 0.2,
-            });
+  constructor(private readonly configService: ConfigService) {
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
 
-            const content = response.choices[0].message.content;
-            return JSON.parse(content as string);
+    if (!apiKey) {
+      throw new InternalServerErrorException(
+        'GEMINI_API_KEY is not configured',
+      );
     }
+
+    this.genAI = new GoogleGenerativeAI(apiKey);
+  }
+
+  async summarizeLead(lead: {
+    name: string;
+    lastName: string;
+    email: string;
+    company?: string;
+  }): Promise<{ summary: string; next_action: string }> {
+
+    const model = this.genAI.getGenerativeModel({
+      model: 'gemini-pro',
+    });
+
+    const prompt = `
+    You are a CRM assistant.
+    Return ONLY valid JSON with this exact format:
+    {
+      "summary": "string",
+      "next_action": "string"
+    }
+
+    Lead data:
+    Name: ${lead.name} ${lead.lastName}
+    Email: ${lead.email}
+    Company: ${lead.company ?? 'N/A'}
+        `;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    return JSON.parse(text);
+  }
 }

@@ -1,98 +1,64 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+*********BACKEND CHALLENGE - Flores, Rosa Maria**********
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Este challenge consiste en desarrollar un backend para la gestión de leads, incorporando un endpoint que utiliza Inteligencia Artificial para generar un resumen (summary) y una próxima acción sugerida (next_action).
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+****Instalación.*****
+Como todo proyecto, lo primero es definir el entorno para el mismo, para eso utilice: Node.js (+v18) - npm - redis (xq utilice colas) - Git
 
-## Description
+!! Redis es importante porque decidi usar Bull para el manejo de tareas asíncronicas.
+!! Variables de entorno (.env) utilice GEMINI, aclaración, el API Key de Gemini tiene que estar habilitado en Google Cloud para la Generative Language API, durante el desarrollo esto provoco errores que se explicaran más adelante.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+****Funcionamiento.****
+El sistema permite:
+  Crear leads manualmente. (POST /create-lead)
+  Listar todos los leads. (GET /leads)
+  Obtener el datalle de un lead. (GET /leads/:id)
+  Generar automáticamente un resumen y una acción sugerida usando IA (POST /leads/:id/summarize)
 
-## Project setup
+****Organización.****
+Como el backend fue desarrollado con NestJs, la arquitectura utilizada es la modular.
+La idea principal de esto, es separar responsabilidades:
+El Controller solo recibe request HTTP.
+El service maneja la lógica.
+EL processor se encarga de tareas asíncronas.
+El ai.service encapsula toda la lógica de IA.
 
-```bash
-$ npm install
-```
+****Uso de colas.****
+Una de las decisiones más importantes fue no ejecutar la IA directamente desde el controller, asi se logro:
+  El endpoint /summarize encola un job -> Bull envía ese job a Redis -> un processor lo consume -> el processor llama a la IA -> el resultado se guarda en la bd.
 
-## Compile and run the project
+****Flujo complejo del summarize****
+Cuando se ejecuta POST /leads/:id/summarize
+El controlleer recive el ID del lead, luego se encola un job con ese ID. El processor obtiene el lead desde la base y se envian los datos a la IA quien es la responsable de devolver un JSON con summary y next_action. Luego se actualiza el lead en la bd y el job devuelve el resultado (Respetando el formato final: {
+"summary": "string",
+"next_action": "string"
+}).
 
-```bash
-# development
-$ npm run start
+!!! Utilicé bull y redis por el manejo de jobs y para separar el request del procesamiento.
+!!! AI separado, es mucho más facíl cambiar el modelo de IA, Ej. comencé utilizando una key de OpenAi y al final deje una de Gemini, simplemente se instala la dependencia y se cambia la key en el archivo .env
 
-# watch mode
-$ npm run start:dev
+****ERRORES*****
+Durante el desarrollo cometí varios errores, tanto conceptuales como técnicos. Considero importante documentarlos porque forman parte del proceso real y explican muchas de las decisiones finales.
 
-# production mode
-$ npm run start:prod
-```
+**Confusión sobre qué debia devolver el endpoint /summarize.
+Uno de los primeros errores fue interpretar mal la consigna. 
+Al principio yo pensaba que:
+  El endpoint POST /leads/:id/summarize solo debía disparar el proceso
+  y que luego había que hacer un GET /leads/:id para ver el resultado, 
+  inicialmente el endpoint me devolvía: {"message": "Lead summarization scheduled}
+Al leer la consigna de nuevo, ví que piden explicitamente que el resultado respete el formato {"summary": "string","next_action": "string"}
+Para corregir modifique el flujo para que el controller espere a que el job termine (job.finished()) y devuelva: {"summary": "string","next_action": "string"}
 
-## Run tests
+**Error con colas: Use cola pero no devolví el resultado.
+Al principio pensé que al utilizar colas el endpoint no podia devolver el resultado, pero si se puede encolar y esperar el resultado del job.
 
-```bash
-# unit tests
-$ npm run test
+**Había definido la cola en el módulo pero no la había inyectado en el constructor del controller.
 
-# e2e tests
-$ npm run test:e2e
+**Problemas con OpenAI y Gemini.
+En el desarrollo del endpoint de resumen con IA sugieron problemas relacionados no al código, si no a los proveedores de IA.
+OPENAI, el flujo funciono bien a nivel codigo (el worker consumia al job desde la cola, se llamaba al servicio de IA y se esperaba un JSON con summary y next_action) pero cuando hice priebas la api comenzó a responder con errores, lo que me afecto a la respuesta, el problema fue que la IA no estaba disponible.
 
-# test coverage
-$ npm run test:cov
-```
+Luego intente con Gemini me encontré con modelos no disponibles para el endpoint, errores de configuracion relaciones con la api key.
 
-## Deployment
+Estos problemas no me afectaron al backend porque se aislo la lógica de la IA, asi es mucho mas facil cambia el proveedor sin afectar al resto. Aun así no logre encontrar un modelo disponible para realizar la prueba con el endpoint.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

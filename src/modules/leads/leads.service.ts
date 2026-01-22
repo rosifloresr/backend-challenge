@@ -5,6 +5,8 @@ import { Lead } from './lead.entity';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { AiService } from 'src/infra/ai/ai.service';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
 
 @Injectable()
 export class LeadsService {
@@ -15,7 +17,8 @@ export class LeadsService {
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
 
-    private readonly aiService: AiService,
+    @InjectQueue('leads-ai')
+    private readonly leadsAiQueue: Queue,    
   ) {}
 
   async create(data: Partial<Lead>): Promise<Lead> {
@@ -56,19 +59,19 @@ export class LeadsService {
     return lead;
   }
 
-  async summarizeLead(id: string): Promise<{summary: string; next_action: string;}>{
-    const lead = await this.leadRepository.findOne({where: {id},});
+  async summarizeLead(id: string): Promise<{ message: string }> {
+    const lead = await this.leadRepository.findOne({ where: { id },});
 
-    if (!lead){
-        throw new NotFoundException('lead not found');
+    if (!lead) {
+      throw new NotFoundException('lead not found');
     }
 
-    const result = await this.aiService.summarizeLead(lead);
-    lead.summary = result.summary;
-    lead.nextAction = result.next_action;
-
-    await this.leadRepository.save(lead);
-    await this.cacheManager.del(`lead:${id}`); //lo invalido
-    return result;
+    await this.leadsAiQueue.add('summarize', {leadId: id,});
+    return {message: 'Lead summarization scheduled',};
+  }
+  
+  async updateSummary(id: string, summary: string, nextAction: string,) {
+    await this.leadRepository.update(id, { summary, nextAction,});
+    return this.findById(id);
   }
 }

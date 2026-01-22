@@ -9,7 +9,7 @@ import { BullModule } from '@nestjs/bull';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true,}),
     //redis cache (globalll)
     CacheModule.registerAsync({
       isGlobal: true,
@@ -29,22 +29,28 @@ import { BullModule } from '@nestjs/bull';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type:'postgres',
-        host: config.get('DB_HOST'),
-        port: Number(config.get('DB_PORT')),
-        username: config.get('DB_USER'),
-        password: config.get('DB_PASSWORD'),
-        database: config.get('DB_NAME'),
+        host: config.get<string>('DB_HOST'),
+        port: Number(config.get<string>('DB_PORT')),
+        username: config.get<string>('DB_USER'),
+        password: String(config.get<string>('DB_PASSWORD')),
+        database: config.get<string>('DB_NAME'),
         autoLoadEntities:true,
-        synchronize: false,
+        synchronize: true,
       }),
     }),
-    LeadsModule,
-    BullModule.forRoot({
-      redis: {
-        host: process.env.REDIS_HOST,
-        port: Number(process.env.REDIS_PORT),
-      },
+
+    // Bull cola
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        redis: {
+          host: config.get<string>('REDIS_HOST'),
+          port: Number(config.get<string>('REDIS_PORT')),
+        },
+      }),
     }),
+
+    LeadsModule,
   ],
 })
 export class AppModule {}
